@@ -5,19 +5,19 @@
             [clojure.string :refer [trim]]
             [taoensso.timbre :as timbre :refer :all])
   (:import [java.util.concurrent Executors]
-           [java.io PrintStream BufferedInputStream OutputStreamWriter]))
+           [java.io  DataOutputStream PrintWriter StringWriter Writer BufferedReader InputStreamReader BufferedInputStream OutputStreamWriter]))
 
-
-(defn get-system-stats [ins outs]
-  (try
-    (let [cmd (slurp ins)
-          output (:out (sh/sh (trim cmd)))]
-      (doto outs
-        (.write (.getBytes output))
-        (.flush)))
-    (catch Exception e (spit "/tmp/foo.txt" (str (.getMessage e))))))
-
+(defn getstack [t]
+  (let [res (StringWriter.)
+        pw  (PrintWriter. res)
+        trace (.printStackTrace t pw)]
+    (.toString res)))
   
-  
+
+
+(defn echo-server [in out]
+  (let [ps (PrintWriter. out true)
+        _ (.close ps)]
+    (.print ps "zGooo")))
   
 
