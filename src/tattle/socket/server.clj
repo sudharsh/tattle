@@ -2,7 +2,8 @@
   (:require  [clojure.java.shell :as sh]
              [clojure.java.io :as io]
              [clojure.string :as string]
-             [cheshire.core :as json])
+             [cheshire.core :as json]
+             [taoensso.timbre :as timbre :refer :all])
   (:import [java.net ServerSocket Socket SocketException]
            [java.io DataOutputStream InputStreamReader InputStream
             PrintWriter StringWriter OutputStreamWriter]))
@@ -10,6 +11,7 @@
 (defrecord Servers [server connections closed])
 
 (def handlers (ref {}))
+
 
 (defn- getstack [^Throwable t]
   (let [res (StringWriter.)
@@ -29,12 +31,29 @@
   (let [br (io/reader ins)]
     (string/join "\n" (line-seq br))))
 
+;; Execute a handler
+(defn- execute-handler [handlers ins outs]
+  (try
+    (let [input (json/parse-string (read-stream ins) true)
+          command (keyword (:command input))
+          f (get @handlers command)]
+      (if (nil? f)
+        {:error  (str "invalid command" command)}
+        {:response (f (:args input))}))
+    (catch Exception e
+      {:error      "internal"
+       :stacktrace (getstack e)
+       :exception  (str e)})))
+
+
 (defn- accept [serversock connections closed]
   (let [s (.accept serversock)
+        sa (.getCanonicalHostName (.getInetAddress s))
         ins (.getInputStream s)
         outs (.getOutputStream s)
         ps (PrintWriter. outs true)]
     (on-thread #(do
+                  (debug (str sa " just connected"))
                   (dosync (commute connections conj s))
                   (try
                     (doto ps
@@ -44,6 +63,7 @@
                       (.checkError))
                     (catch SocketException e))
                   (close s)
+                  (debug (str sa " disconnected"))
                   (dosync (commute connections disj s)
                           (swap! closed inc))))))
 
@@ -63,6 +83,7 @@
 
 (defn close-server [server]
   "Closes a server. Shuts down all connections"
+  (info (str "Closing server"))
   (doseq [s @(:connections server)]
     (close s))
   (dosync (ref-set (:connections server) #{}))
@@ -78,22 +99,11 @@
 
 (defn add-handler [command fun]
   "Add a handler for a given command"
+  (info (str "Adding handler " command))
   (dosync (commute handlers assoc command fun)))
 
 (defn remove-handler [command]
   "Remove a handler"
+  (info (str "Removing handler " command))
   (dosync (commute handlers dissoc command)))
 
-;; Execute a handler
-(defn- execute-handler [handlers ins outs]
-  (try
-    (let [input (json/parse-string (read-stream ins) true)
-          command (keyword (:command input))
-          f (get @handlers command)]
-      (if (nil? f)
-        {:error  (str "invalid command" command)}
-        {:response (f (:args input))}))
-    (catch Exception e
-      {:error      "internal"
-       :stacktrace (getstack e)
-       :exception  (str e)})))
