@@ -2,16 +2,36 @@
   (:require  [clojure.java.shell :as sh]
              [clojure.java.io :as io]
              [clojure.string :as string]
+             [tattle.socket.client :as client]
              [cheshire.core :as json]
              [taoensso.timbre :as timbre :refer :all])
   (:import [java.net ServerSocket Socket SocketException]
+           [java.util.concurrent ScheduledThreadPoolExecutor TimeUnit]
            [java.io DataOutputStream InputStreamReader InputStream
             PrintWriter StringWriter OutputStreamWriter]))
 
 (defrecord Servers [server connections closed])
+(defonce self (.getHostAddress (java.net.InetAddress/getLocalHost)))
 
+;; FIXME: gossip interval should be tweakable
+(defonce gossip-interval (* 20 1000))
+
+
+(def ^:private pool (atom nil))
 (def handlers (ref {}))
+(def nodes (ref (assoc {}
+                  (keyword self) "up")))
 
+(defn- thread-pool []
+  (swap! pool (fn [p] (or p (ScheduledThreadPoolExecutor. 1)))))
+
+(defn- every [f timeout]
+  (.scheduleWithFixedDelay (thread-pool)
+                           f
+                           0 timeout TimeUnit/MILLISECONDS))
+
+(defn- shutdown []
+  (swap! pool (fn [p] (when p (.shutdown p)))))
 
 (defn- getstack [^Throwable t]
   (let [res (StringWriter.)
@@ -36,10 +56,12 @@
   (try
     (let [input (json/parse-string (read-stream ins) true)
           command (keyword (:command input))
-          f (get @handlers command)]
+          f (get @handlers command)
+          args {:remote remote :nodes nodes}]
       (if (nil? f)
         {:error  (str "invalid command" command)}
-        {:response (f {:remote remote} )}))
+        ;; Call the handler with a bunch of metadata
+        {:response (f args)}))
     (catch Exception e
       {:error      "internal"
        :stacktrace (getstack e)
@@ -67,6 +89,21 @@
                   (dosync (commute connections disj s)
                           (swap! closed inc))))))
 
+(defn gossip []
+  (info "Starting gossip")
+  (try
+    (let [others (keys (dissoc @nodes (keyword self)))
+          node (rand-nth others)
+          payload {:command "ping"}            
+          jsonified (json/generate-string payload)]
+      (if (nil? node)
+        (info "No nodes found to gossip with")
+        (do
+          (info (str "Exchanging gossip with " node))
+          (client/write
+           (client/connect {:host node :port 6000}) jsonified))))
+    (catch Exception e (error e))))
+
 ;; Pub functions
 (defn create-server [port]
   "Creates a server on port exec'ing func with an input-stream
@@ -79,6 +116,8 @@
                     (accept ss connections closed)
                     (catch SocketException e (println (str "Foo: " (getstack e)))))
                   (recur)))
+    (info "Starting gossip every " gossip-interval " milliseconds")
+    (every gossip gossip-interval)
     (Servers. ss connections closed)))
 
 (defn close-server [server]
