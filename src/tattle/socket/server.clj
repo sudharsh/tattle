@@ -32,14 +32,14 @@
     (string/join "\n" (line-seq br))))
 
 ;; Execute a handler
-(defn- execute-handler [handlers ins outs]
+(defn- execute-handler [handlers ins outs remote]
   (try
     (let [input (json/parse-string (read-stream ins) true)
           command (keyword (:command input))
           f (get @handlers command)]
       (if (nil? f)
         {:error  (str "invalid command" command)}
-        {:response (f (:args input))}))
+        {:response (f {:remote remote} )}))
     (catch Exception e
       {:error      "internal"
        :stacktrace (getstack e)
@@ -58,7 +58,7 @@
                   (try
                     (doto ps
                       (.print (json/generate-string
-                               (execute-handler handlers ins outs)))
+                               (execute-handler handlers ins outs sa)))
                       ;; Force flush
                       (.checkError))
                     (catch SocketException e))
