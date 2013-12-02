@@ -11,7 +11,7 @@
 
 (def handlers (ref {}))
 
-(defn- getstack [t]
+(defn- getstack [^Throwable t]
   (let [res (StringWriter.)
         pw  (PrintWriter. res)
         trace (.printStackTrace t pw)]
@@ -20,7 +20,7 @@
 (defn- on-thread [f]
   (doto (Thread. f) .start))
 
-(defn- close [^Socket socket]
+(defn- close [socket]
   (when-not (.isClosed socket)
     (doto socket
       (.close))))
@@ -40,6 +40,7 @@
                     (doto ps
                       (.print (json/generate-string
                                (execute-handler handlers ins outs)))
+                      ;; Force flush
                       (.checkError))
                     (catch SocketException e))
                   (close s)
