@@ -1,14 +1,14 @@
 # tattle
 
-A Clojure library designed to ... well, that part is up to you.
+Tattle is a distributed inventory and discovery service for large networks (hopefully)
 
-## Usage
+## But Why?
 
-FIXME
+Just to teach myself clojure and pick up some network foo.
 
 ## License
 
-Copyright © 2013 FIXME
+Copyright © 2013 Sudharshan S
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
