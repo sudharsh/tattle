@@ -11,7 +11,6 @@
             PrintWriter StringWriter OutputStreamWriter]))
 
 (defrecord Servers [server connections closed])
-(defonce self (.getHostAddress (java.net.InetAddress/getLocalHost)))
 
 ;; FIXME: gossip interval should be tweakable
 (defonce gossip-interval (* 20 1000))
@@ -19,8 +18,7 @@
 
 (def ^:private pool (atom nil))
 (def handlers (ref {}))
-(def nodes (ref (assoc {}
-                  (keyword self) "up")))
+(def nodes (ref {}))
 
 (defn- thread-pool []
   (swap! pool (fn [p] (or p (ScheduledThreadPoolExecutor. 1)))))
@@ -49,7 +47,7 @@
 
 (defn- read-stream [^InputStream ins]
   (let [br (io/reader ins)]
-    (string/join "\n" (line-seq br))))
+    (.readLine br)))
 
 ;; Execute a handler
 (defn- execute-handler [handlers ins outs remote]
@@ -57,7 +55,8 @@
     (let [input (json/parse-string (read-stream ins) true)
           command (keyword (:command input))
           f (get @handlers command)
-          args {:remote remote :nodes nodes}]
+          args (merge input {:remote remote :nodes nodes})]
+      (info "Executing " command " with args " args)
       (if (nil? f)
         {:error  (str "invalid command" command)}
         ;; Call the handler with a bunch of metadata
@@ -70,38 +69,42 @@
 
 (defn- accept [serversock connections closed]
   (let [s (.accept serversock)
-        sa (.getCanonicalHostName (.getInetAddress s))
+        remote (.getHostAddress (.getInetAddress s))
         ins (.getInputStream s)
         outs (.getOutputStream s)
         ps (PrintWriter. outs true)]
     (on-thread #(do
-                  (debug (str sa " just connected"))
+                  (debug (str remote " just connected"))
                   (dosync (commute connections conj s))
                   (try
                     (doto ps
                       (.print (json/generate-string
-                               (execute-handler handlers ins outs sa)))
+                               (execute-handler handlers ins outs remote)))
                       ;; Force flush
                       (.checkError))
-                    (catch SocketException e))
+                    (catch SocketException e (error (getstack e))))
                   (close s)
-                  (debug (str sa " disconnected"))
+                  (debug (str remote" disconnected"))
                   (dosync (commute connections disj s)
                           (swap! closed inc))))))
 
 (defn gossip []
   (info "Starting gossip")
   (try
-    (let [others (keys (dissoc @nodes (keyword self)))
-          node (rand-nth others)
+    (let [node (rand-nth (keys @nodes))
           payload {:command "ping"}            
           jsonified (json/generate-string payload)]
       (if (nil? node)
-        (info "No nodes found to gossip with")
+        (debug "No nodes found to gossip with")
         (do
-          (info (str "Exchanging gossip with " node))
-          (client/write
-           (client/connect {:host node :port 6000}) jsonified))))
+          (debug (str "Exchanging gossip with " node))
+          (let [connection (client/connect
+                            {:host node :port 6000})
+                response (json/parse-string (client/write connection jsonified))]
+            (debug "Got response " response " from node " node)
+            (debug "Merging node information")
+            (dosync (commute nodes merge (get response "response")))
+            (.close (:socket @connection))))))              
     (catch Exception e (error e))))
 
 ;; Pub functions

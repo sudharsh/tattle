@@ -9,14 +9,12 @@
 (defn get-nodes [{:keys [nodes]}]
   @nodes)
 
-(defn add [{:keys [remote nodes]}]
-  (dosync (commute nodes assoc remote "added")))
+(defn add! [{:keys [node nodes]}]
+  (dosync (commute nodes assoc node "added")))
 
-(defn ping [{:keys [remote nodes]}]
-  (info (str "Updating metadata for" remote))
-  (add {:remote remote :nodes nodes}))
-
-
-
-
-
+(defn ping! [{:keys [node remote nodes]}]
+  (info (str "Updating metadata for" node))
+  (if (nil? node)
+    (add! {:node remote :nodes nodes})
+    (add! {:node node :nodes nodes}))
+  @nodes)

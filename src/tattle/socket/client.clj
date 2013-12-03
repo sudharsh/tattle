@@ -1,6 +1,10 @@
 (ns tattle.socket.client
   (:import [java.net Socket]
-           [java.io PrintWriter InputStreamReader BufferedReader]))
+           [java.io  InputStream PrintWriter InputStreamReader BufferedReader]))
+
+(defn- read-stream [^InputStream ins]
+  (let [br (clojure.java.io/reader ins)]
+    (clojure.string/join "\n" (line-seq br))))
 
 (defn connect [{:keys [host port]}]
   (let [socket (Socket. host port)
@@ -11,6 +15,7 @@
 
 (defn write [conn msg]
   (doto (:out @conn)
-    (.println (str msg "\r"))
+    (.write (str msg "\r\n"))
     (.flush))
-  (.close (:socket @conn)))
+  (when-not (.isClosed (:socket @conn))
+    (.readLine (:in @conn))))
