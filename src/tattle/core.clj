@@ -11,6 +11,6 @@
   (server/add-handler :uptime handlers/uptime)
   (server/add-handler :nodes handlers/get-nodes)
   (server/add-handler :ping handlers/ping!)
-  (info "Starting agent")
+  (server/add-handler :status handlers/status)
   (server/create-server 6000)
   (info "Listening on port 6000"))

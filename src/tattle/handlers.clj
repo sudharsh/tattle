@@ -13,7 +13,10 @@
   (node/get-nodes))
 
 (defn ping! [{:keys [remote nodes]}]
-  (info "Updating metadata")
+  (debug "Updating metadata")
   (do
     (node/merge-nodes nodes)
     (node/get-nodes)))
+
+(defn status [_]
+  (node/network-summary))

@@ -10,6 +10,7 @@
            [java.util.concurrent ScheduledThreadPoolExecutor TimeUnit]
            [java.io InputStream PrintWriter StringWriter]))
 
+
 (defrecord Servers [server connections closed])
 
 ;; FIXME: gossip interval should be tweakable
@@ -114,18 +115,16 @@
 
 ;; Internal handlers
 (defn gossip [{:keys [host] :or { host (:ip (node/random-node)) }}] 
-  
-  (info "Starting gossip")
+  (debug "Starting gossip")
   (try
     (let [payload {:command "ping" :nodes (node/get-nodes)}
           jsonified (json/generate-string payload)]
       (if (nil? host)
         (debug "No nodes found to gossip with")
         (do
-          (debug "Exchanging gossip with " host jsonified)
+          (debug "Exchanging gossip with " host)
           (let [connection (client/connect {:host host :port 6000})
                 response (json/parse-string (client/write connection jsonified) true)]
-            (debug "Got response " response " from node " host)
             (debug "Merging node information")
             (node/merge-nodes (:response response))
             (.close (:socket @connection)))
@@ -144,14 +143,15 @@
   (let [ss (ServerSocket. port)
         connections (ref #{})
         closed (atom 0)]
+    (info "Adding internal handlers")
+    (add-handler :bootstrap bootstrap)
+    (add-handler :add gossip)
+    (info "Starting agent")
     (on-thread #(when-not (.isClosed ss)
                   (try
                     (accept ss connections closed)
                     (catch SocketException e (println (str "Foo: " (getstack e)))))
                   (recur)))
-    (info "Adding internal handlers")
-    (add-handler :bootstrap bootstrap)
-    (add-handler :add gossip)
     (info "Starting gossip every " gossip-interval " milliseconds")
     (every #(gossip {}) gossip-interval)
     (Servers. ss connections closed)))
