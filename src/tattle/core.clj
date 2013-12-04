@@ -11,7 +11,6 @@
   ;; FIXME: Read this from a config of-course :)
   (server/add-handler :uptime handlers/uptime)
   (server/add-handler :nodes handlers/get-nodes)
-  (server/add-handler :add handlers/add!)
   (server/add-handler :ping handlers/ping!)
   (info "Starting agent")
   (server/create-server 6000)

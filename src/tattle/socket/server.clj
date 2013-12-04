@@ -2,23 +2,21 @@
   (:require  [clojure.java.shell :as sh]
              [clojure.java.io :as io]
              [clojure.string :as string]
-             [tattle.socket.client :as client]
              [cheshire.core :as json]
-             [taoensso.timbre :as timbre :refer :all])
+             [taoensso.timbre :as timbre :refer :all]
+             [tattle.socket.client :as client]
+             [tattle.node :as node])
   (:import [java.net ServerSocket Socket SocketException]
            [java.util.concurrent ScheduledThreadPoolExecutor TimeUnit]
-           [java.io DataOutputStream InputStreamReader InputStream
-            PrintWriter StringWriter OutputStreamWriter]))
+           [java.io InputStream PrintWriter StringWriter]))
 
 (defrecord Servers [server connections closed])
 
 ;; FIXME: gossip interval should be tweakable
 (defonce gossip-interval (* 20 1000))
 
-
 (def ^:private pool (atom nil))
 (def handlers (ref {}))
-(def nodes (ref {}))
 
 (defn- thread-pool []
   (swap! pool (fn [p] (or p (ScheduledThreadPoolExecutor. 1)))))
@@ -55,7 +53,7 @@
     (let [input (json/parse-string (read-stream ins) true)
           command (keyword (:command input))
           f (get @handlers command)
-          args (merge input {:remote remote :nodes nodes})]
+          args (merge input {:remote remote})]
       (info "Executing " command " with args " args)
       (if (nil? f)
         {:error  (str "invalid command" command)}
@@ -66,62 +64,27 @@
        :stacktrace (getstack e)
        :exception  (str e)})))
 
-
 (defn- accept [serversock connections closed]
   (let [s (.accept serversock)
         remote (.getHostAddress (.getInetAddress s))
         ins (.getInputStream s)
         outs (.getOutputStream s)
         ps (PrintWriter. outs true)]
-    (on-thread #(do
-                  (debug (str remote " just connected"))
-                  (dosync (commute connections conj s))
-                  (try
-                    (doto ps
-                      (.print (json/generate-string
-                               (execute-handler handlers ins outs remote)))
-                      ;; Force flush
-                      (.checkError))
-                    (catch SocketException e (error (getstack e))))
-                  (close s)
-                  (debug (str remote" disconnected"))
-                  (dosync (commute connections disj s)
-                          (swap! closed inc))))))
-
-(defn gossip []
-  (info "Starting gossip")
-  (try
-    (let [node (rand-nth (keys @nodes))
-          payload {:command "ping"}            
-          jsonified (json/generate-string payload)]
-      (if (nil? node)
-        (debug "No nodes found to gossip with")
-        (do
-          (debug (str "Exchanging gossip with " node))
-          (let [connection (client/connect
-                            {:host node :port 6000})
-                response (json/parse-string (client/write connection jsonified))]
-            (debug "Got response " response " from node " node)
-            (debug "Merging node information")
-            (dosync (commute nodes merge (get response "response")))
-            (.close (:socket @connection))))))              
-    (catch Exception e (error e))))
-
-;; Pub functions
-(defn create-server [port]
-  "Creates a server on port exec'ing func with an input-stream
-  and an output stream"
-  (let [ss (ServerSocket. port)
-        connections (ref #{})
-        closed (atom 0)]
-    (on-thread #(when-not (.isClosed ss)
-                  (try
-                    (accept ss connections closed)
-                    (catch SocketException e (println (str "Foo: " (getstack e)))))
-                  (recur)))
-    (info "Starting gossip every " gossip-interval " milliseconds")
-    (every gossip gossip-interval)
-    (Servers. ss connections closed)))
+    (on-thread
+     #(do
+       (debug (str remote " just connected"))
+       (dosync (commute connections conj s))
+       (try
+         (doto ps
+           (.print (json/generate-string
+                    (execute-handler handlers ins outs remote)))
+           ;; Force flush
+           (.checkError))
+         (catch SocketException e (error (getstack e))))
+       (close s)
+       (debug (str remote" disconnected"))
+       (dosync (commute connections disj s)
+               (swap! closed inc))))))
 
 (defn close-server [server]
   "Closes a server. Shuts down all connections"
@@ -149,3 +112,46 @@
   (info (str "Removing handler " command))
   (dosync (commute handlers dissoc command)))
 
+;; Internal handlers
+(defn gossip [{:keys [host] :or { host (:ip (node/random-node)) }}] 
+  
+  (info "Starting gossip")
+  (try
+    (let [payload {:command "ping" :nodes (node/get-nodes)}
+          jsonified (json/generate-string payload)]
+      (if (nil? host)
+        (debug "No nodes found to gossip with")
+        (do
+          (debug "Exchanging gossip with " host jsonified)
+          (let [connection (client/connect {:host host :port 6000})
+                response (json/parse-string (client/write connection jsonified) true)]
+            (debug "Got response " response " from node " host)
+            (debug "Merging node information")
+            (node/merge-nodes (:response response))
+            (.close (:socket @connection)))
+          (node/get-nodes))))
+    (catch Exception e (error "Error: " e))))
+
+(defn bootstrap [{:keys [interface] :or { interface "eth0" }}]
+  (info "Bootstrapping using interface:" interface)
+   (let [ip (node/ip-for-interface interface)]
+    (node/mark-node node/self ip)))
+
+;; Pub functions
+(defn create-server [port]
+  "Creates a server on port exec'ing func with an input-stream
+  and an output stream"
+  (let [ss (ServerSocket. port)
+        connections (ref #{})
+        closed (atom 0)]
+    (on-thread #(when-not (.isClosed ss)
+                  (try
+                    (accept ss connections closed)
+                    (catch SocketException e (println (str "Foo: " (getstack e)))))
+                  (recur)))
+    (info "Starting gossip every " gossip-interval " milliseconds")
+    (every #(gossip {}) gossip-interval)
+    (info "Adding internal handlers")
+    (add-handler :bootstrap bootstrap)
+    (add-handler :add gossip)
+    (Servers. ss connections closed)))
