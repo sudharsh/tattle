@@ -1,6 +1,6 @@
 (ns tattle.handlers
   (:require [tattle.node :as node]
-            [tattle.socket.client :as client]
+            [tattle.client :as client]
             [taoensso.timbre :as timbre :refer :all]
             [cheshire.core :as json]
             [clojure.string :as string]

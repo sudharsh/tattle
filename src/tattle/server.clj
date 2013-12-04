@@ -1,10 +1,10 @@
-(ns tattle.socket.server
+(ns tattle.server
   (:require  [clojure.java.shell :as sh]
              [clojure.java.io :as io]
              [clojure.string :as string]
              [cheshire.core :as json]
              [taoensso.timbre :as timbre :refer :all]
-             [tattle.socket.client :as client]
+             [tattle.client :as client]
              [tattle.node :as node])
   (:import [java.net ServerSocket Socket SocketException]
            [java.util.concurrent ScheduledThreadPoolExecutor TimeUnit]
@@ -149,9 +149,9 @@
                     (accept ss connections closed)
                     (catch SocketException e (println (str "Foo: " (getstack e)))))
                   (recur)))
-    (info "Starting gossip every " gossip-interval " milliseconds")
-    (every #(gossip {}) gossip-interval)
     (info "Adding internal handlers")
     (add-handler :bootstrap bootstrap)
     (add-handler :add gossip)
+    (info "Starting gossip every " gossip-interval " milliseconds")
+    (every #(gossip {}) gossip-interval)
     (Servers. ss connections closed)))

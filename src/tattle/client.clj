@@ -1,4 +1,4 @@
-(ns tattle.socket.client
+(ns tattle.client
   (:import [java.net Socket]
            [java.io  InputStream PrintWriter InputStreamReader BufferedReader]))
 

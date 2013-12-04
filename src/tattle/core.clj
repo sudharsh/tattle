@@ -1,6 +1,5 @@
 (ns tattle.core
-  (:require [tattle.socket.server :as server]
-            [tattle.socket.client :as client]
+  (:require [tattle.server :as server]
             [tattle.handlers :as handlers]
             [taoensso.timbre :as timbre :refer :all])
   (:gen-class))
